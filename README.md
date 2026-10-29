@@ -2,11 +2,11 @@
 
 Dibuja y anota directamente sobre la interfaz nativa interactiva de captura de pantalla de GNOME (`Main.screenshotUI`) al estilo **Lightshot**, con herramientas vectoriales, atajos configurables, paleta de colores editable, control de grosor, censura por pixelado y atenuación dinámica de menús.
 
-Compatible con **GNOME Shell 48, 49 y 50**.
+Compatible con **GNOME Shell 48, 49, 50 y 51**.
 
 > El código usa APIs que no existen antes de GNOME 48 (`St.BoxLayout.orientation`,
 > `global.stage.context`), así que declarar 45–47 era incorrecto: ahí no funciona.
-> Verificado en 50; 48 y 49 se declaran por compatibilidad de API.
+> Verificado en 50 y 51; 48 y 49 se declaran por compatibilidad de API.
 
 ---
 

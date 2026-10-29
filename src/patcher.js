@@ -310,6 +310,11 @@ export class ScreenshotPatcher {
      *     el manejador corre ANTES que el `vfunc_key_press_event` de la clase,
      *     que es RUN_LAST.
      *
+     * En GNOME 51 las teclas nativas pasan a un `Clutter.BindingPool` que se
+     * despacha antes que `key-press-event`, así que esa señal ya no ve las
+     * teclas que la interfaz consume. No hace falta: ahí `captured-event` sí
+     * se emite sobre el actor con el foco y los atajos conservan la prioridad.
+     *
      * El stage se mantiene como red de seguridad para el caso sin grab. No hay
      * riesgo de actuar dos veces: el primero que encaja devuelve `EVENT_STOP` y
      * corta la propagación.

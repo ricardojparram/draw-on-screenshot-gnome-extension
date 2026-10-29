@@ -1,12 +1,11 @@
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
-import Cogl from 'gi://Cogl';
-import Shell from 'gi://Shell';
 import GObject from 'gi://GObject';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { ToolType } from '../core/drawingModel.js';
 import { logWarning } from '../core/log.js';
+import { PixelateEffect } from './pixelateEffect.js';
 
 /**
  * Pixelado en vivo de la pantalla congelada.
@@ -22,53 +21,13 @@ import { logWarning } from '../core/log.js';
  *   contenedor recortado a la región
  *     └── actor del tamaño del stage con ESE mismo contenido, desplazado −x,−y
  *
- * y sobre el contenedor va un `Shell.GLSLEffect`: Clutter pinta el subárbol en
+ * y sobre el contenedor va un `PixelateEffect`: Clutter pinta el subárbol en
  * una textura fuera de pantalla del tamaño de la región y el snippet GLSL
  * cuantiza las coordenadas de muestreo, que es literalmente pixelar.
  *
  * La retícula se alinea con la región, igual que hace `ScreenshotCompositor`
  * sobre el pixbuf, de modo que la vista previa y la imagen guardada coinciden.
  */
-
-/**
- * El fragment shader vuelve a muestrear la textura en el CENTRO del bloque al
- * que pertenece cada píxel, de modo que todo el bloque toma el mismo color. Eso
- * es exactamente pixelar, y lo hace la GPU sin copiar nada.
- *
- * Dos detalles que costaron encontrar:
- *
- *   - `Clutter.ShaderEffect` ya no sirve: mutter dejó de exponer
- *     `ClutterShaderType`, así que desde JS no se puede construir.
- *     `Shell.GLSLEffect` es el reemplazo que mantiene el propio Shell.
- *   - El enganche natural sería `TEXTURE_LOOKUP`, redondeando `cogl_tex_coord`
- *     antes del muestreo; pero `add_glsl_snippet` pasa el código como fragmento
- *     POSTERIOR, es decir, ya muestreado, y tocar la coordenada allí no hace
- *     nada. De ahí que se use el enganche `FRAGMENT` y se muestree a mano.
- */
-const PIXELATE_DECLARATIONS = 'uniform vec2 blocks;';
-const PIXELATE_CODE = `
-    vec2 uv = cogl_tex_coord0_in.xy;
-    uv = (floor(uv * blocks) + vec2(0.5)) / blocks;
-    cogl_color_out = texture2D(cogl_sampler0, uv) * cogl_color_in;
-`;
-
-const PixelateEffect = GObject.registerClass({
-    GTypeName: 'ScreenshotPixelateEffect',
-}, class PixelateEffect extends Shell.GLSLEffect {
-    vfunc_build_pipeline() {
-        this.add_glsl_snippet(
-            Cogl.SnippetHook.FRAGMENT,
-            PIXELATE_DECLARATIONS,
-            PIXELATE_CODE,
-            false
-        );
-    }
-
-    /** @param {number} x @param {number} y Número de bloques en cada eje. */
-    setBlocks(x, y) {
-        this.set_uniform_float(this.get_uniform_location('blocks'), 2, [x, y]);
-    }
-});
 
 const PixelateRegion = GObject.registerClass({
     GTypeName: 'ScreenshotPixelateRegion',
@@ -175,13 +134,15 @@ export class PixelateLayer {
         const ui = Main.screenshotUI;
         const content = ui?._stageScreenshot?.get_content?.() ?? null;
 
-        if (!content) {
-            // Sin la imagen congelada no hay nada que pixelar: el lienzo se
-            // encarga entonces de dibujar el mosaico gris de respaldo.
+        if (!content || !PixelateEffect) {
+            // Sin la imagen congelada o sin el efecto no hay forma de pixelar
+            // en vivo: el lienzo dibuja entonces el mosaico gris de respaldo.
             this._available = false;
             this._content = null;
-            logWarning('ScreenshotUI no expone la captura congelada; ' +
-                       'la vista previa del pixelado será aproximada.');
+            if (!content) {
+                logWarning('ScreenshotUI no expone la captura congelada; ' +
+                           'la vista previa del pixelado será aproximada.');
+            }
             this._clearRegions();
             return;
         }
