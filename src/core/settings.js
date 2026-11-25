@@ -81,9 +81,8 @@ const KEYCODE_ROWS = [
 const KEYCODE_BY_SYMBOL = new Map();
 for (const [first, chars] of KEYCODE_ROWS) {
     for (let i = 0; i < chars.length; i++) {
-        // Los keysyms latinos coinciden con el código ASCII del carácter, así
-        // que `Clutter.KEY_a === 'a'.charCodeAt(0)`.
-        KEYCODE_BY_SYMBOL.set(chars.charCodeAt(i), first + i);
+        // Store under canonicalKey so aliased keys like `plus` (`=`) also get a hardware keycode.
+        KEYCODE_BY_SYMBOL.set(canonicalKey(chars.charCodeAt(i)), first + i);
     }
 }
 
@@ -102,7 +101,10 @@ const MODIFIER_TOKENS = {
     ctrl: Clutter.ModifierType.CONTROL_MASK,
     shift: Clutter.ModifierType.SHIFT_MASK,
     alt: Clutter.ModifierType.MOD1_MASK,
+    mod1: Clutter.ModifierType.MOD1_MASK,
     super: Clutter.ModifierType.SUPER_MASK,
+    mod4: Clutter.ModifierType.SUPER_MASK,
+    meta: Clutter.ModifierType.SUPER_MASK,
 };
 
 /** Sólo estos modificadores participan en la comparación de atajos. */
@@ -172,7 +174,11 @@ export function parseAccelerator(accel) {
 export function acceleratorMatches(binding, symbol, state, keycode = 0) {
     if (!binding) return false;
 
-    const active = state & RELEVANT_MODIFIERS;
+    let normalizedState = state;
+    if ((normalizedState & Clutter.ModifierType.MOD4_MASK) !== 0) {
+        normalizedState |= Clutter.ModifierType.SUPER_MASK;
+    }
+    const active = normalizedState & RELEVANT_MODIFIERS;
     let modsOk = active === binding.mods;
 
     // Un atajo sin modificadores debe seguir respondiendo con Bloq Mayús puesto

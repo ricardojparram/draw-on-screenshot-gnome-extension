@@ -156,8 +156,9 @@ export function renderStroke(cr, stroke, scale = 1.0, offsetX = 0, offsetY = 0, 
             if (length < 2) return;
 
             const angle = Math.atan2(dy, dx);
-            const headLength = Math.max(16 * scale, scaledWidth * 3.5);
-            const headAngle = Math.PI / 6; // 30 grados
+            const baseHeadLength = Math.max(6 * scale, scaledWidth * 3.5);
+            const headLength = Math.min(baseHeadLength, length / 0.9);
+            const headAngle = Math.PI / 6; // 30 degrees
 
             // Punto base donde el cuerpo de la flecha se une a la cabeza
             const bx = ex - (headLength * 0.75) * Math.cos(angle);
@@ -384,6 +385,7 @@ export const DrawingCanvas = GObject.registerClass({
 
         this._model = model;
         this._isDrawing = false;
+        this._dragGrab = null;
         this._activeTextEntry = null;
         // Anotación de texto que se está reubicando con el ratón, si la hay.
         this._draggingText = null;
@@ -398,17 +400,21 @@ export const DrawingCanvas = GObject.registerClass({
         // EVENT_PROPAGATE lo pasa al padre, nunca al selector de área que está
         // debajo. Sólo dejando de ser reactivo el selector vuelve a recibirlo.
         this.reactive = this._model.hasActiveTool();
+        this._syncCursor();
 
         this._modelListener = () => {
             this.reactive = this._model.hasActiveTool();
+            this._syncCursor();
             // Si el modelo descartó el trazo en curso (deshacer, cambio de
             // herramienta), el gesto de arrastre deja de ser válido.
             if (this._isDrawing && !this._model.currentStroke) {
                 this._isDrawing = false;
+                this._releaseDragGrab();
             }
             if (this._draggingText &&
                 !this._model.strokes.includes(this._draggingText.stroke)) {
                 this._draggingText = null;
+                this._releaseDragGrab();
             }
             this.queue_repaint();
         };
@@ -566,6 +572,7 @@ export const DrawingCanvas = GObject.registerClass({
                         dx: x - target.x,
                         dy: y - target.y,
                     };
+                    this._acquireDragGrab();
                     this.emit('draw-started');
                     return Clutter.EVENT_STOP;
                 }
@@ -580,6 +587,7 @@ export const DrawingCanvas = GObject.registerClass({
             }
 
             this._isDrawing = true;
+            this._acquireDragGrab();
             this.emit('draw-started');
             this._model.startStroke(x, y);
             return Clutter.EVENT_STOP;
@@ -616,12 +624,14 @@ export const DrawingCanvas = GObject.registerClass({
     vfunc_button_release_event(event) {
         if (event.get_button() === Clutter.BUTTON_PRIMARY && this._draggingText) {
             this._draggingText = null;
+            this._releaseDragGrab();
             this.emit('draw-ended');
             return Clutter.EVENT_STOP;
         }
 
         if (event.get_button() === Clutter.BUTTON_PRIMARY && this._isDrawing) {
             this._isDrawing = false;
+            this._releaseDragGrab();
             this._model.endStroke();
             this.emit('draw-ended');
             return Clutter.EVENT_STOP;
@@ -688,6 +698,51 @@ export const DrawingCanvas = GObject.registerClass({
 
     get hasTextEntry() {
         return this._activeTextEntry !== null;
+    }
+
+    isTextEntryTarget(actor) {
+        const entry = this._activeTextEntry?.entry;
+        return Boolean(entry && actor && (actor === entry || entry.contains(actor)));
+    }
+
+    _syncCursor() {
+        if (typeof this.set_cursor_type !== 'function') return;
+        const tool = this._model.activeTool;
+        if (!tool) {
+            this.set_cursor_type(Clutter.CursorType.INHERIT);
+        } else if (tool === ToolType.TEXT) {
+            this.set_cursor_type(Clutter.CursorType.TEXT);
+        } else {
+            this.set_cursor_type(Clutter.CursorType.CROSSHAIR);
+        }
+    }
+
+    _acquireDragGrab() {
+        if (this._dragGrab) return;
+        try {
+            if (typeof global?.stage?.grab === 'function') {
+                this._dragGrab = global.stage.grab(this);
+            }
+        } catch (e) {
+            this._dragGrab = null;
+        }
+    }
+
+    _releaseDragGrab() {
+        if (!this._dragGrab) return;
+        try {
+            this._dragGrab.dismiss();
+        } catch (e) {
+            // ignore already-dismissed grabs
+        }
+        this._dragGrab = null;
+    }
+
+    /** Release any active pointer drag or grab safely. */
+    cancelDrag() {
+        this._isDrawing = false;
+        this._draggingText = null;
+        this._releaseDragGrab();
     }
 
     _spawnTextEntry(x, y) {
@@ -789,6 +844,7 @@ export const DrawingCanvas = GObject.registerClass({
     }
 
     destroy() {
+        this.cancelDrag();
         if (this._activeTextEntry) {
             this._activeTextEntry.dismiss();
         }
