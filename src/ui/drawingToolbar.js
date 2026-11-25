@@ -101,13 +101,14 @@ export const DrawingToolbar = GObject.registerClass({
      */
     _init(model, iconsPath = null, prefs = {}, tooltips = null, params = {}) {
         super._init({
-            style_class: 'screenshot-draw-toolbar',
+            style_class: 'screenshot-ui-panel screenshot-draw-toolbar bms-popup-blur-target',
             orientation: Clutter.Orientation.HORIZONTAL,
             x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER,
             x_expand: false,
             y_expand: false,
             reactive: true,
+            offscreen_redirect: Clutter.OffscreenRedirect.AUTOMATIC_FOR_OPACITY,
             ...params,
         });
 
@@ -229,10 +230,11 @@ export const DrawingToolbar = GObject.registerClass({
             // Se construye aquí pero NO se añade a la barra: el patcher lo cuelga
             // del stage y lo posiciona, para que abrirlo no reacomode la barra.
             this._colorPopover = new St.BoxLayout({
-                style_class: 'screenshot-draw-color-popover',
+                style_class: 'screenshot-ui-panel screenshot-draw-color-popover bms-popup-blur-target',
                 orientation: Clutter.Orientation.HORIZONTAL,
                 visible: false,
                 reactive: true,
+                offscreen_redirect: Clutter.OffscreenRedirect.AUTOMATIC_FOR_OPACITY,
             });
 
             for (const color of this._model.palette) {

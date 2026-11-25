@@ -13,12 +13,14 @@
  * st-lighten() es una función propia de St y está disponible aquí.
  */
 
+.screenshot-ui-panel.screenshot-draw-toolbar,
 .screenshot-draw-toolbar {
     color: #ffffff;
     background-color: #2e2e33;
     border: 1px solid rgba(255, 255, 255, 0.02);
     border-radius: 999px;
     padding: 6px 12px;
+    margin: 0;
     spacing: 6px;
 }
 
@@ -84,12 +86,14 @@
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
+.screenshot-ui-panel.screenshot-draw-color-popover,
 .screenshot-draw-color-popover {
     color: #ffffff;
     background-color: #2e2e33;
     border: 1px solid rgba(255, 255, 255, 0.02);
     border-radius: 999px;
     padding: 6px 10px;
+    margin: 0;
     spacing: 7px;
 }
 
@@ -165,4 +169,57 @@
     font-weight: 400;
     text-align: center;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* --- Blur my Shell light popup style compatibility --- */
+
+.bms-popup-background-light .screenshot-draw-toolbar,
+.bms-popup-surface-light .screenshot-draw-toolbar,
+.bms-popup-background-light .screenshot-draw-tool-button,
+.bms-popup-surface-light .screenshot-draw-tool-button,
+.bms-popup-background-light .screenshot-draw-stepper-btn,
+.bms-popup-surface-light .screenshot-draw-stepper-btn,
+.bms-popup-background-light .screenshot-draw-size-label,
+.bms-popup-surface-light .screenshot-draw-size-label {
+    color: rgba(0, 0, 0, 0.85);
+}
+
+.bms-popup-background-light .screenshot-draw-separator,
+.bms-popup-surface-light .screenshot-draw-separator {
+    background-color: rgba(0, 0, 0, 0.14);
+}
+
+.bms-popup-background-light .screenshot-draw-tool-button:hover,
+.bms-popup-background-light .screenshot-draw-tool-button:focus,
+.bms-popup-surface-light .screenshot-draw-tool-button:hover,
+.bms-popup-surface-light .screenshot-draw-tool-button:focus,
+.bms-popup-background-light .screenshot-draw-color-picker-btn:hover,
+.bms-popup-background-light .screenshot-draw-color-picker-btn:focus,
+.bms-popup-surface-light .screenshot-draw-color-picker-btn:hover,
+.bms-popup-surface-light .screenshot-draw-color-picker-btn:focus,
+.bms-popup-background-light .screenshot-draw-stepper-btn:hover,
+.bms-popup-background-light .screenshot-draw-stepper-btn:focus,
+.bms-popup-surface-light .screenshot-draw-stepper-btn:hover,
+.bms-popup-surface-light .screenshot-draw-stepper-btn:focus {
+    background-color: rgba(0, 0, 0, 0.14);
+}
+
+.bms-popup-background-light .screenshot-draw-tool-button:active,
+.bms-popup-surface-light .screenshot-draw-tool-button:active,
+.bms-popup-background-light .screenshot-draw-color-picker-btn:active,
+.bms-popup-surface-light .screenshot-draw-color-picker-btn:active,
+.bms-popup-background-light .screenshot-draw-stepper-btn:active,
+.bms-popup-surface-light .screenshot-draw-stepper-btn:active {
+    background-color: rgba(0, 0, 0, 0.24);
+}
+
+.bms-popup-background-light .screenshot-draw-tool-button:checked,
+.bms-popup-surface-light .screenshot-draw-tool-button:checked {
+    background-color: #3584e4;
+    color: #ffffff;
+}
+
+.bms-popup-background-light .screenshot-draw-tool-button:insensitive,
+.bms-popup-surface-light .screenshot-draw-tool-button:insensitive {
+    color: rgba(0, 0, 0, 0.4);
 }

@@ -49,6 +49,26 @@ const SHORTCUT_ACTIONS = {
     'key-toggle-fill': model => model.toggleFill(),
 };
 
+/** Default GTK accelerator strings matching the GSettings schema. */
+const DEFAULT_SHORTCUTS = {
+    'key-tool-pen': 'p',
+    'key-tool-line': 'l',
+    'key-tool-arrow': 'a',
+    'key-tool-rect': 'r',
+    'key-tool-ellipse': 'o',
+    'key-tool-highlighter': 'h',
+    'key-tool-text': 't',
+    'key-tool-counter': 'n',
+    'key-tool-pixelate': 'x',
+    'key-undo': '<Control>z',
+    'key-redo': '<Control><Shift>z',
+    'key-clear': 'Delete',
+    'key-cycle-color': 'c',
+    'key-increase-size': 'plus',
+    'key-decrease-size': 'minus',
+    'key-toggle-fill': 'f',
+};
+
 /** Claves de GSettings que sólo afectan a cómo se construye la barra. */
 const TOOLBAR_KEYS = [
     'enabled-tools', 'show-color-picker', 'show-size-stepper', 'show-fill-toggle',
@@ -159,18 +179,25 @@ export class ScreenshotPatcher {
         const shortcuts = {};
         this._bindings = new Map();
 
-        if (!settings) {
-            this._prefs = { enabledTools: [...ToolOrder], shortcuts };
-            return;
-        }
-
         for (const key of Object.keys(SHORTCUT_ACTIONS)) {
-            const accel = settings.get_string(key);
+            let accel = DEFAULT_SHORTCUTS[key] ?? '';
+            if (settings) {
+                try {
+                    accel = settings.get_string(key);
+                } catch (e) {
+                    accel = DEFAULT_SHORTCUTS[key] ?? '';
+                }
+            }
             shortcuts[key] = accel;
             const binding = parseAccelerator(accel);
             if (binding) {
                 this._bindings.set(key, binding);
             }
+        }
+
+        if (!settings) {
+            this._prefs = { enabledTools: [...ToolOrder], shortcuts };
+            return;
         }
 
         this._prefs = {
@@ -258,6 +285,10 @@ export class ScreenshotPatcher {
         // 5. Devolver la opacidad de los menús, que pudo quedar atenuada
         this._restoreMenuOpacity();
 
+        if (ui?._areaSelector) {
+            ui._areaSelector.reactive = Boolean(ui._selectionButton?.checked);
+        }
+
         // 6. Destruir componentes visuales
         if (this._tooltips) {
             this._tooltips.destroy();
@@ -270,6 +301,7 @@ export class ScreenshotPatcher {
         }
 
         if (this._drawingCanvas) {
+            this._drawingCanvas.cancelDrag();
             this._drawingCanvas.destroy();
             this._drawingCanvas = null;
         }
@@ -341,7 +373,8 @@ export class ScreenshotPatcher {
 
         const onCaptured = (actor, event) => this._onCapturedEvent(event);
         this._eventHandlers.push(
-            [global.stage, global.stage.connect('captured-event', onCaptured)]);
+            [global.stage, global.stage.connect('captured-event', onCaptured)],
+            [global.stage, global.stage.connect('key-press-event', onCaptured)]);
     }
 
     _disconnectStageHandlers() {
@@ -367,7 +400,8 @@ export class ScreenshotPatcher {
     }
 
     _onCapturedEvent(event) {
-        if (!Main.screenshotUI?.visible) {
+        const ui = Main.screenshotUI;
+        if (!ui?.visible) {
             return Clutter.EVENT_PROPAGATE;
         }
 
@@ -377,6 +411,20 @@ export class ScreenshotPatcher {
         }
         if (type === Clutter.EventType.SCROLL) {
             return this._onStageScroll(event);
+        }
+        if (type === Clutter.EventType.BUTTON_PRESS &&
+            this._model.hasActiveTool() &&
+            this._drawingCanvas &&
+            event.get_button() === Clutter.BUTTON_PRIMARY) {
+            const target = event.get_source?.() ?? null;
+            const popover = this._toolbar?.colorPopover;
+            if (target === this._drawingCanvas ||
+                (target && target !== ui._primaryMonitorBin && ui._primaryMonitorBin?.contains(target)) ||
+                (popover?.visible && target && (target === popover || popover.contains(target))) ||
+                this._drawingCanvas.isTextEntryTarget(target)) {
+                return Clutter.EVENT_PROPAGATE;
+            }
+            return this._drawingCanvas.vfunc_button_press_event(event);
         }
         return Clutter.EVENT_PROPAGATE;
     }
@@ -458,7 +506,16 @@ export class ScreenshotPatcher {
         this._pixelateLayer = new PixelateLayer(this._model);
         ui.add_child(this._pixelateLayer.build());
 
-        this._modelListener = () => this._pixelateLayer?.sync();
+        let hadActiveTool = this._model.hasActiveTool();
+        this._modelListener = () => {
+            this._pixelateLayer?.sync();
+            this._syncAreaSelectorReactivity();
+            const hasActiveTool = this._model.hasActiveTool();
+            if (hasActiveTool && !hadActiveTool && Main.screenshotUI) {
+                this._raiseActors(Main.screenshotUI);
+            }
+            hadActiveTool = hasActiveTool;
+        };
         this._model.addListener(this._modelListener);
 
         // --- 1. Lienzo de dibujo ---
@@ -471,6 +528,10 @@ export class ScreenshotPatcher {
             x_align: Clutter.ActorAlign.START,
             y_align: Clutter.ActorAlign.START,
         });
+        this._drawingCanvas.add_constraint(new Clutter.BindConstraint({
+            source: global.stage,
+            coordinate: Clutter.BindCoordinate.ALL,
+        }));
         this._drawingCanvas.visible = false;
 
         const drawStartId = this._drawingCanvas.connect('draw-started', () => {
@@ -503,8 +564,27 @@ export class ScreenshotPatcher {
 
         for (const button of [ui._selectionButton, ui._screenButton, ui._windowButton]) {
             if (!button) continue;
-            const id = button.connect('notify::checked', () => this._syncCanvasGeometry());
+            const id = button.connect('notify::checked', () => {
+                this._syncCanvasGeometry();
+                this._syncAreaSelectorReactivity(ui);
+            });
             this._signals.push([button, id]);
+        }
+    }
+
+    /**
+     * Keep native area selector inert while a drawing tool is active so the
+     * first click never starts an area drag/move instead of drawing.
+     */
+    _syncAreaSelectorReactivity(ui = Main.screenshotUI) {
+        if (!ui?._areaSelector) return;
+
+        if (this._model.hasActiveTool()) {
+            ui._areaSelector.stopDrag?.();
+            ui._areaSelector.reactive = false;
+            ui._areaSelector.set_cursor_type?.(Clutter.CursorType.INHERIT);
+        } else {
+            ui._areaSelector.reactive = Boolean(ui._selectionButton?.checked);
         }
     }
 
@@ -642,16 +722,24 @@ export class ScreenshotPatcher {
         }
 
         popover.set_position(Math.round(x), Math.round(y));
-        if (popover.get_parent() === ui) {
+        if (popover.get_parent() === ui &&
+            !this._isAbove(ui, popover, ui._primaryMonitorBin ?? this._drawingCanvas)) {
             ui.set_child_above_sibling(popover, null);
         }
     }
 
+    _isAbove(parent, upper, lower) {
+        if (!parent || !upper || !lower) return false;
+        if (upper.get_parent() !== parent || lower.get_parent() !== parent) return false;
+        const children = parent.get_children();
+        return children.indexOf(upper) > children.indexOf(lower);
+    }
 
     /**
      * Orden de apilado, de abajo arriba: selector de área, lienzo, panel nativo,
      * barra de dibujo y paleta. La barra va sobre el panel para que nunca quede
      * tapada cuando la selección la empuja hacia el centro de la pantalla.
+     * Preserva los actores overlay de Blur my Shell justo debajo de sus destinos.
      */
     _raiseActors(ui) {
         try {
@@ -661,20 +749,42 @@ export class ScreenshotPatcher {
             // brillante que el resto.
             const layer = this._pixelateLayer?.actor;
             if (layer?.get_parent() === ui) {
-                if (ui._stageScreenshot?.get_parent() === ui) {
+                if (ui._stageScreenshotContainer?.get_parent() === ui) {
+                    ui.set_child_above_sibling(layer, ui._stageScreenshotContainer);
+                } else if (ui._stageScreenshot?.get_parent() === ui) {
                     ui.set_child_above_sibling(layer, ui._stageScreenshot);
                 } else {
                     ui.set_child_below_sibling(layer, null);
                 }
             }
             if (this._drawingCanvas?.get_parent() === ui) {
-                ui.set_child_above_sibling(this._drawingCanvas, null);
+                const children = ui.get_children();
+                let baseSibling = null;
+                let maxIdx = -1;
+                for (const candidate of [ui._areaSelector, ...(ui._monitorBins ?? [])]) {
+                    if (candidate?.get_parent?.() === ui) {
+                        const idx = children.indexOf(candidate);
+                        if (idx > maxIdx) {
+                            maxIdx = idx;
+                            baseSibling = candidate;
+                        }
+                    }
+                }
+                if (baseSibling) {
+                    ui.set_child_above_sibling(this._drawingCanvas, baseSibling);
+                } else if (ui._primaryMonitorBin?.get_parent() === ui) {
+                    ui.set_child_below_sibling(this._drawingCanvas, ui._primaryMonitorBin);
+                } else {
+                    ui.set_child_above_sibling(this._drawingCanvas, null);
+                }
             }
-            if (ui._primaryMonitorBin) {
+            if (ui._primaryMonitorBin?.get_parent() === ui &&
+                !this._isAbove(ui, ui._primaryMonitorBin, this._drawingCanvas)) {
                 ui.set_child_above_sibling(ui._primaryMonitorBin, null);
             }
             const popover = this._toolbar?.colorPopover;
-            if (popover?.get_parent() === ui) {
+            if (popover?.get_parent() === ui &&
+                !this._isAbove(ui, popover, ui._primaryMonitorBin ?? this._drawingCanvas)) {
                 ui.set_child_above_sibling(popover, null);
             }
         } catch (e) {
@@ -697,7 +807,7 @@ export class ScreenshotPatcher {
         // sólo lectura (el interior de cualquier St.Label) también puede acabar
         // con el foco, y comprobar únicamente el tipo dejaba los atajos mudos.
         const focus = global.stage.get_key_focus();
-        if (focus instanceof Clutter.Text && focus.editable) {
+        if (focus instanceof Clutter.Text && focus.editable && Main.screenshotUI.contains(focus)) {
             return Clutter.EVENT_PROPAGATE;
         }
 
@@ -777,6 +887,7 @@ export class ScreenshotPatcher {
 
             const result = await self._origOpen.call(this, mode);
             self._syncCanvasGeometry();
+            self._syncAreaSelectorReactivity(this);
 
             // La imagen congelada sólo existe una vez abierta la interfaz, y se
             // renueva en cada captura.
@@ -796,6 +907,8 @@ export class ScreenshotPatcher {
             self._pixelateLayer?.hide();
             self._toolbar?.closePopover();
             self._drawingCanvas?.cancelTextEntry();
+            self._drawingCanvas?.cancelDrag();
+            self._syncAreaSelectorReactivity(this);
             if (self._toolbar) self._toolbar.visible = false;
             if (self._drawingCanvas) self._drawingCanvas.visible = false;
             self._restoreMenuOpacity();
